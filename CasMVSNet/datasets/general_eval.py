@@ -3,6 +3,7 @@ import numpy as np
 import os, cv2, time
 from PIL import Image
 from datasets.data_io import *
+#Inside CasMVSNet datasets
 
 s_h, s_w = 0, 0
 class MVSDataset(Dataset):
@@ -71,6 +72,7 @@ class MVSDataset(Dataset):
 
         if len(lines[11].split()) >= 3:
             num_depth = lines[11].split()[2]
+
             depth_max = depth_min + int(float(num_depth)) * depth_interval
             depth_interval = (depth_max - depth_min) / self.ndepths
 
@@ -122,7 +124,9 @@ class MVSDataset(Dataset):
         for i, vid in enumerate(view_ids):
             img_filename = os.path.join(self.datapath, '{}/images_post/{:0>8}.jpg'.format(scan, vid))
             if not os.path.exists(img_filename):
-                img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.jpg'.format(scan, vid))
+                img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.jng'.format(scan, vid))
+                if not os.path.exists(img_filename):
+                    img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.png'.format(scan, vid))
 
             proj_mat_filename = os.path.join(self.datapath, '{}/cams/{:0>8}_cam.txt'.format(scan, vid))
 
@@ -161,6 +165,7 @@ class MVSDataset(Dataset):
             proj_matrices.append(proj_mat)
 
             if i == 0:  # reference view
+                #print(self.ndepths)
                 depth_values = np.arange(depth_min, depth_interval * (self.ndepths - 0.5) + depth_min, depth_interval,
                                          dtype=np.float32)
 
