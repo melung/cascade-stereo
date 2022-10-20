@@ -115,6 +115,7 @@ class CascadeMVSNet(nn.Module):
         features = []
         for nview_idx in range(imgs.size(1)):  #imgs shape (B, N, C, H, W)
             img = imgs[:, nview_idx]
+            img = img[:, 0:3, :, :]
             features.append(self.feature(img))
 
         outputs = {}
