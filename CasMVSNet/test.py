@@ -29,7 +29,7 @@ parser.add_argument('--testpath_single_scene', help='testing data path for singl
 parser.add_argument('--testlist', help='testing scene list')
 
 parser.add_argument('--batch_size', type=int, default=1, help='testing batch size')
-parser.add_argument('--numdepth', type=int, default=192, help='the number of depth values')
+parser.add_argument('--numdepth', type=int, default=192, help='the number of depth values')#192
 
 parser.add_argument('--loadckpt', default=None, help='load a specific checkpoint')
 parser.add_argument('--outdir', default='./outputs', help='output dir')
@@ -37,19 +37,19 @@ parser.add_argument('--display', action='store_true', help='display depth images
 
 parser.add_argument('--share_cr', action='store_true', help='whether share the cost volume regularization')
 
-parser.add_argument('--ndepths', type=str, default="48,32,8", help='ndepths')
+parser.add_argument('--ndepths', type=str, default="48,32,8", help='ndepths')#48 32 8
 parser.add_argument('--depth_inter_r', type=str, default="4,2,1", help='depth_intervals_ratio')
 parser.add_argument('--cr_base_chs', type=str, default="8,8,8", help='cost regularization base channels')
 parser.add_argument('--grad_method', type=str, default="detach", choices=["detach", "undetach"], help='grad method')
 
 parser.add_argument('--interval_scale', type=float, required=True, help='the depth interval scale')
-parser.add_argument('--num_view', type=int, default=5, help='num of view')
-parser.add_argument('--max_h', type=int, default=864, help='testing max h')
-parser.add_argument('--max_w', type=int, default=1152, help='testing max w')
+parser.add_argument('--num_view', type=int, default=10, help='num of view')
+parser.add_argument('--max_h', type=int, default=1024, help='testing max h')#864
+parser.add_argument('--max_w', type=int, default=1280, help='testing max w')#1152
 parser.add_argument('--fix_res', action='store_true', help='scene all using same res')
 
 parser.add_argument('--num_worker', type=int, default=4, help='depth_filer worker')
-parser.add_argument('--save_freq', type=int, default=20, help='save freq of local pcd')
+parser.add_argument('--save_freq', type=int, default=60, help='save freq of local pcd')
 
 
 parser.add_argument('--filter_method', type=str, default='normal', choices=["gipuma", "normal"], help="filter method")
@@ -176,6 +176,9 @@ def save_scene_depth(testlist):
         for batch_idx, sample in enumerate(TestImgLoader):
             sample_cuda = tocuda(sample)
             start_time = time.time()
+
+            print(sample_cuda["depth_values"].size())
+
             outputs = model(sample_cuda["imgs"], sample_cuda["proj_matrices"], sample_cuda["depth_values"])
             end_time = time.time()
             outputs = tensor2numpy(outputs)
@@ -207,8 +210,8 @@ def save_scene_depth(testlist):
                 #save cams, img
                 write_cam(cam_filename, cam)
                 img = np.clip(np.transpose(img, (1, 2, 0)) * 255, 0, 255).astype(np.uint8)
-                img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-                cv2.imwrite(img_filename, img_bgr)
+                #img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                #cv2.imwrite(img_filename, img_bgr)
 
                 # vis
                 # print(photometric_confidence.mean(), photometric_confidence.min(), photometric_confidence.max())
@@ -228,8 +231,8 @@ def save_scene_depth(testlist):
                 elif num_stage == 3:
                     downsample_img = img
 
-                if batch_idx % args.save_freq == 0:
-                    generate_pointcloud(downsample_img, depth_est, ply_filename, cam[1, :3, :3])
+                #if batch_idx % args.save_freq == 0:
+                    #generate_pointcloud(downsample_img, depth_est, ply_filename, cam[1, :3, :3])
 
     torch.cuda.empty_cache()
     gc.collect()
@@ -347,9 +350,9 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
         final_mask = np.logical_and(photo_mask, geo_mask)
 
         os.makedirs(os.path.join(out_folder, "mask"), exist_ok=True)
-        save_mask(os.path.join(out_folder, "mask/{:0>8}_photo.png".format(ref_view)), photo_mask)
-        save_mask(os.path.join(out_folder, "mask/{:0>8}_geo.png".format(ref_view)), geo_mask)
-        save_mask(os.path.join(out_folder, "mask/{:0>8}_final.png".format(ref_view)), final_mask)
+        #save_mask(os.path.join(out_folder, "mask/{:0>8}_photo.png".format(ref_view)), photo_mask)
+        #save_mask(os.path.join(out_folder, "mask/{:0>8}_geo.png".format(ref_view)), geo_mask)
+        #save_mask(os.path.join(out_folder, "mask/{:0>8}_final.png".format(ref_view)), final_mask)
 
         print("processing {}, ref-view{:0>2}, photo/geo/final-mask:{}/{}/{}".format(scan_folder, ref_view,
                                                                                     photo_mask.mean(),
