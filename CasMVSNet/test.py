@@ -1,7 +1,11 @@
 import argparse, os, time, sys, gc, cv2
 import torch
 import torch.nn as nn
+
 import torch.nn.parallel
+
+#torch.distributed.init_process_group(backend="nccl",world,rank = 0)
+
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
@@ -19,19 +23,24 @@ from functools import partial
 import signal
 
 cudnn.benchmark = True
+os.environ['CUDA_DEVICE_ORDER'] = "PCI_BUS_ID"
+#os.environ['CUDA_VISIBLE_DEVICES'] ='0,1,3,5,6'
+#device = torch.device("cuda:1")
 
 parser = argparse.ArgumentParser(description='Predict depth, filter, and fuse')
 parser.add_argument('--model', default='mvsnet', help='select model')
 
-parser.add_argument('--dataset', default='dtu_yao_eval', help='select dataset')
-parser.add_argument('--testpath', help='testing data dir for some scenes')
+parser.add_argument('--dataset', default='general_eval', help='select dataset')
+parser.add_argument('--testpath', default="data/",help='testing data dir for some scenes')
 parser.add_argument('--testpath_single_scene', help='testing data path for single scene')
-parser.add_argument('--testlist', help='testing scene list')
+parser.add_argument('--testlist', default="lists/our_list.txt", help='testing scene list')
 
-parser.add_argument('--batch_size', type=int, default=1, help='testing batch size')
+parser.add_argument('--local_rank',help='testing data dir for some scenes')
+
+parser.add_argument('--batch_size', type=int, default=18, help='testing batch size')#7 GPUs can use maximum 18 batches +- 2
 parser.add_argument('--numdepth', type=int, default=192, help='the number of depth values')#192 no significant performance improvement even if increased
 
-parser.add_argument('--loadckpt', default=None, help='load a specific checkpoint')
+parser.add_argument('--loadckpt', default="/home/lhs/Downloads/cascade-stereo/casmvsnet.ckpt", help='load a specific checkpoint')
 parser.add_argument('--outdir', default='./outputs', help='output dir')
 parser.add_argument('--display', action='store_true', help='display depth images and masks')
 
@@ -42,13 +51,13 @@ parser.add_argument('--depth_inter_r', type=str, default="4,2,1", help='depth_in
 parser.add_argument('--cr_base_chs', type=str, default="8,8,8", help='cost regularization base channels')
 parser.add_argument('--grad_method', type=str, default="detach", choices=["detach", "undetach"], help='grad method')
 
-parser.add_argument('--interval_scale', type=float, required=True, help='the depth interval scale')
-parser.add_argument('--num_view', type=int, default=10, help='num of view')#2 is blur, 10 is too much
+parser.add_argument('--interval_scale', type=float, default=1.06, help='the depth interval scale')
+parser.add_argument('--num_view', type=int, default=5, help='num of view')#2 is blur, 10 is too much
 parser.add_argument('--max_h', type=int, default=864, help='testing max h')#864
 parser.add_argument('--max_w', type=int, default=1152, help='testing max w')#1152
 parser.add_argument('--fix_res', action='store_true', help='scene all using same res')
 
-parser.add_argument('--num_worker', type=int, default=4, help='depth_filer worker')
+parser.add_argument('--num_worker', type=int, default=10, help='depth_filer worker')
 parser.add_argument('--save_freq', type=int, default=60, help='save freq of local pcd')
 
 
@@ -56,7 +65,7 @@ parser.add_argument('--filter_method', type=str, default='normal', choices=["gip
 
 #filter
 parser.add_argument('--conf', type=float, default=0.9, help='prob confidence')
-parser.add_argument('--thres_view', type=int, default=5, help='threshold of num view')
+parser.add_argument('--thres_view', type=int, default=4, help='threshold of num view')
 
 #filter by gimupa
 parser.add_argument('--fusibile_exe_path', type=str, default='../fusibile/fusibile')
@@ -152,12 +161,17 @@ def save_depth(testlist):
 # run CasMVS model to save depth maps and confidence maps
 def save_scene_depth(testlist):
     # dataset, dataloader
+
     MVSDataset = find_dataset_def(args.dataset)
+
+
     test_dataset = MVSDataset(args.testpath, testlist, "test", args.num_view, args.numdepth, Interval_Scale,
                               max_h=args.max_h, max_w=args.max_w, fix_res=args.fix_res)
-    TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=4, drop_last=False)
+    TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=10, drop_last=False)
+
 
     # model
+
     model = CascadeMVSNet(refine=False, ndepths=[int(nd) for nd in args.ndepths.split(",") if nd],
                           depth_interals_ratio=[float(d_i) for d_i in args.depth_inter_r.split(",") if d_i],
                           share_cr=args.share_cr,
@@ -166,22 +180,27 @@ def save_scene_depth(testlist):
 
     # load checkpoint file specified by args.loadckpt
     print("loading model {}".format(args.loadckpt))
-    state_dict = torch.load(args.loadckpt, map_location=torch.device("cpu"))
+
+    start_time = time.time()
+    state_dict = torch.load(args.loadckpt, map_location='cpu')
     model.load_state_dict(state_dict['model'], strict=True)
+    #model = nn.parallel.DistributedDataParallel(model)
     model = nn.DataParallel(model)
     model.cuda()
     model.eval()
+    end_time = time.time()
+    print('Model_loaded Parallel Time: ' + str(end_time - start_time))
 
     with torch.no_grad():
         for batch_idx, sample in enumerate(TestImgLoader):
             sample_cuda = tocuda(sample)
+
             start_time = time.time()
-
-            #print(sample_cuda["depth_values"].size())
-
             outputs = model(sample_cuda["imgs"], sample_cuda["proj_matrices"], sample_cuda["depth_values"])
             end_time = time.time()
+            print('only inference: ' +str(end_time-start_time))
             outputs = tensor2numpy(outputs)
+
             del sample_cuda
             filenames = sample["filename"]
             cams = sample["proj_matrices"]["stage{}".format(num_stage)].numpy()
@@ -233,9 +252,9 @@ def save_scene_depth(testlist):
                 #
                 # #if batch_idx % args.save_freq == 0:
                 #     #generate_pointcloud(downsample_img, depth_est, ply_filename, cam[1, :3, :3])
-
-    torch.cuda.empty_cache()
     gc.collect()
+    torch.cuda.empty_cache()
+
 
 
 # project the reference point cloud into the source view, then project back
