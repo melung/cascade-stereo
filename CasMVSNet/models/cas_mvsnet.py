@@ -106,7 +106,10 @@ class CascadeMVSNet(nn.Module):
             self.refine_network = RefineNet()
         self.DepthNet = DepthNet()
 
+
     def forward(self, imgs, proj_matrices, depth_values):
+        #print('start')
+        #start_time = time.time()
         depth_min = float(depth_values[0, 0].cpu().numpy())
         depth_max = float(depth_values[0, -1].cpu().numpy())
         depth_interval = (depth_max - depth_min) / depth_values.size(1)
@@ -163,4 +166,6 @@ class CascadeMVSNet(nn.Module):
             refined_depth = self.refine_network(torch.cat((imgs[:, 0], depth), 1))
             outputs["refined_depth"] = refined_depth
 
+        #end_time = time.time()
+        #print(end_time-start_time)
         return outputs

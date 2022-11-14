@@ -67,7 +67,8 @@ class MVSDataset(Dataset):
         intrinsics = np.fromstring(' '.join(lines[7:10]), dtype=np.float32, sep=' ').reshape((3, 3))
         intrinsics[:2, :] /= 4.0
         # depth_min & depth_interval: line 11
-        depth_min = float(lines[11].split()[0])
+        depth_min = float(lines[11].split()[0]) #use cam.txt depth min data
+        #depth_min = 1500 #use direct depth min
         depth_interval = float(lines[11].split()[1])
 
         if len(lines[11].split()) >= 3:
