@@ -8,9 +8,9 @@ if [ ! -d $save_path ];then
     mkdir -p $save_path
 fi
 
-DATAPATH="./data/sceneflow/"
+DATAPATH="../data/sceneflow/"
 
-python -m torch.distributed.launch --nproc_per_node=$1 main.py --dataset sceneflow \
+CDUA_VISIBLE_DEVICES="0" python -m torch.distributed.launch --nproc_per_node=$1 main.py --dataset sceneflow \
     --datapath $DATAPATH --trainlist ./filenames/sceneflow_train.txt --testlist ./filenames/sceneflow_test.txt \
     --test_datapath $DATAPATH --test_dataset sceneflow \
     --epochs 16 --lrepochs "10,12,14,16:2" \

@@ -18,7 +18,7 @@ from utils import *
 from torch.utils.data import DataLoader
 import gc
 import skimage
-
+from utils.experiment import tensor2numpy, make_nograd_func
 cudnn.benchmark = True
 
 parser = argparse.ArgumentParser(description='Cascade Stereo Network (CasStereoNet)')
@@ -58,7 +58,8 @@ test_dataset = Test_StereoDataset(args.test_datapath, args.testlist, False,
                                   crop_height=args.test_crop_height, crop_width=args.test_crop_width,
                                   test_crop_height=args.test_crop_height, test_crop_width=args.test_crop_width)
 
-TestImgLoader = DataLoader(test_dataset, 1, shuffle=False, num_workers=4, drop_last=False)
+# TestImgLoader = DataLoader(test_dataset, 1, shuffle=False, num_workers=4, drop_last=False) # todo
+TestImgLoader = DataLoader(test_dataset, 1, shuffle=False, num_workers=0, drop_last=False)
 
 # model, optimizer
 model = __models__[args.model](
@@ -84,16 +85,18 @@ num_stage = len([int(nd) for nd in args.ndisps.split(",") if nd])
 def test():
     for batch_idx, sample in enumerate(TestImgLoader):
         start_time = time.time()
-        disp_est_np = tensor2numpy(test_sample(sample))
-        top_pad_np = tensor2numpy(sample["top_pad"])
-        right_pad_np = tensor2numpy(sample["right_pad"])
+        disp_est_np = list(tensor2numpy(test_sample(sample)))
+        top_pad_np = list(tensor2numpy(sample["top_pad"][...,None]))
+        right_pad_np = list(tensor2numpy(sample["right_pad"][...,None]))
         left_filenames = sample["left_filename"]
         print('Iter {}/{}, time = {:3f}'.format(batch_idx, len(TestImgLoader),
                                                 time.time() - start_time))
 
         for disp_est, top_pad, right_pad, fn in zip(disp_est_np, top_pad_np, right_pad_np, left_filenames):
             assert len(disp_est.shape) == 2
-            disp_est = np.array(disp_est[top_pad:, :-right_pad], dtype=np.float32)
+            if right_pad[0] == 0:
+                right_pad[0] = -disp_est.shape[1]
+            disp_est = np.array(disp_est[top_pad[0]:, :-right_pad[0]], dtype=np.float32)
             fn = os.path.join(args.logdir, fn.split('/')[-1])
             print("saving to", fn, disp_est.shape)
             disp_est_uint = np.round(disp_est * 256).astype(np.uint16)

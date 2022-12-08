@@ -1,0 +1,1 @@
+Monkaa/RGB_cleanpass/left/0048.png Monkaa/RGB_cleanpass/right/0048.png Monkaa/disparity/0048.pfm
