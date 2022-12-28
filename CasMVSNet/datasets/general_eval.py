@@ -22,6 +22,14 @@ class MVSDataset(Dataset):
         assert self.mode == "test"
         self.metas = self.build_list()
 
+        self.datalist = self.build_data()
+        
+    
+            
+        
+
+
+
     def build_list(self):
         metas = []
         scans = self.listfile
@@ -54,6 +62,93 @@ class MVSDataset(Dataset):
         print("dataset", self.mode, "metas:", len(metas), "interval_scale:{}".format(self.interval_scale))
         return metas
 
+    def build_data(self):
+        s = time.time()
+        global s_h, s_w
+        meta = self.metas[0]
+        numview = len(self.metas)
+        scan, ref_view, src_views, scene_name = meta
+        # use only the reference view and first nviews-1 source views
+        view_ids = [ref_view] + src_views[:self.nviews - 1]
+        print(view_ids)
+        imgs = []
+        depth_values = None
+        proj_matrices = []
+
+        for i in range(numview):
+            img_filename = os.path.join(self.datapath, '{}/images_post/{:0>8}.jpg'.format(scan, i))
+            if not os.path.exists(img_filename):
+                img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.jpg'.format(scan, i))
+                if not os.path.exists(img_filename):
+                    img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.png'.format(scan, i))
+
+            proj_mat_filename = os.path.join(self.datapath, '{}/cams/{:0>8}_cam.txt'.format(scan, i))
+
+            img = self.read_img(img_filename)
+            intrinsics, extrinsics, depth_min, depth_interval = self.read_cam_file(proj_mat_filename, interval_scale=
+                                                                                   self.interval_scale[scene_name])
+            # scale input
+            img, intrinsics = self.scale_mvs_input(img, intrinsics, self.max_w, self.max_h)
+
+            if self.fix_res:
+                # using the same standard height or width in entire scene.
+                s_h, s_w = img.shape[:2]
+                self.fix_res = False
+                self.fix_wh = True
+
+            if i == 0:
+                if not self.fix_wh:
+                    # using the same standard height or width in each nviews.
+                    s_h, s_w = img.shape[:2]
+
+            # resize to standard height or width
+            c_h, c_w = img.shape[:2]
+            if (c_h != s_h) or (c_w != s_w):
+                scale_h = 1.0 * s_h / c_h
+                scale_w = 1.0 * s_w / c_w
+                img = cv2.resize(img, (s_w, s_h))
+                intrinsics[0, :] *= scale_w
+                intrinsics[1, :] *= scale_h
+
+
+            imgs.append(img)
+            # extrinsics, intrinsics
+            proj_mat = np.zeros(shape=(2, 4, 4), dtype=np.float32)  #
+            proj_mat[0, :4, :4] = extrinsics
+            proj_mat[1, :3, :3] = intrinsics
+            proj_matrices.append(proj_mat)
+
+            if i == 0:  # reference view
+                #print(self.ndepths)
+                ####################### fix this code later 
+                depth_values = np.arange(depth_min, depth_interval * (self.ndepths - 0.5) + depth_min, depth_interval,
+                                         dtype=np.float32)
+
+        #all
+        imgs = np.stack(imgs).transpose([0, 3, 1, 2])
+        proj_matrices = np.stack(proj_matrices)
+
+        stage2_pjmats = proj_matrices.copy()
+        stage2_pjmats[:, 1, :2, :] = proj_matrices[:, 1, :2, :] * 2
+        stage3_pjmats = proj_matrices.copy()
+        stage3_pjmats[:, 1, :2, :] = proj_matrices[:, 1, :2, :] * 4
+
+        
+        e = time.time()
+        print("total data load", e - s)
+        
+        
+        return {"imgs": imgs,
+                "stage1": proj_matrices,
+                "stage2": stage2_pjmats,
+                "stage3": stage3_pjmats,
+                "depth_values": depth_values}
+    
+    
+    
+    
+    
+    
     def __len__(self):
         return len(self.metas)
 
@@ -68,7 +163,7 @@ class MVSDataset(Dataset):
         intrinsics[:2, :] /= 4.0
         # depth_min & depth_interval: line 11
         depth_min = float(lines[11].split()[0]) #use cam.txt depth min data
-        #depth_min = 1500 #use direct depth min
+        depth_min = 1500 #use direct depth min
         depth_interval = float(lines[11].split()[1])
 
         if len(lines[11].split()) >= 3:
@@ -118,73 +213,83 @@ class MVSDataset(Dataset):
         # use only the reference view and first nviews-1 source views
         view_ids = [ref_view] + src_views[:self.nviews - 1]
 
-        imgs = []
-        depth_values = None
-        proj_matrices = []
+        # imgs = []
+        # depth_values = None
+        # proj_matrices = []
 
-        for i, vid in enumerate(view_ids):
-            img_filename = os.path.join(self.datapath, '{}/images_post/{:0>8}.jpg'.format(scan, vid))
-            if not os.path.exists(img_filename):
-                img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.jng'.format(scan, vid))
-                if not os.path.exists(img_filename):
-                    img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.png'.format(scan, vid))
+        # for i, vid in enumerate(view_ids):
+        #     img_filename = os.path.join(self.datapath, '{}/images_post/{:0>8}.jpg'.format(scan, vid))
+        #     if not os.path.exists(img_filename):
+        #         img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.jpg'.format(scan, vid))
+        #         if not os.path.exists(img_filename):
+        #             img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.png'.format(scan, vid))
 
-            proj_mat_filename = os.path.join(self.datapath, '{}/cams/{:0>8}_cam.txt'.format(scan, vid))
+        #     proj_mat_filename = os.path.join(self.datapath, '{}/cams/{:0>8}_cam.txt'.format(scan, vid))
 
-            img = self.read_img(img_filename)
-            intrinsics, extrinsics, depth_min, depth_interval = self.read_cam_file(proj_mat_filename, interval_scale=
-                                                                                   self.interval_scale[scene_name])
-            # scale input
-            img, intrinsics = self.scale_mvs_input(img, intrinsics, self.max_w, self.max_h)
+        #     img = self.read_img(img_filename)
+        #     intrinsics, extrinsics, depth_min, depth_interval = self.read_cam_file(proj_mat_filename, interval_scale=
+        #                                                                            self.interval_scale[scene_name])
+        #     # scale input
+        #     img, intrinsics = self.scale_mvs_input(img, intrinsics, self.max_w, self.max_h)
 
-            if self.fix_res:
-                # using the same standard height or width in entire scene.
-                s_h, s_w = img.shape[:2]
-                self.fix_res = False
-                self.fix_wh = True
+        #     if self.fix_res:
+        #         # using the same standard height or width in entire scene.
+        #         s_h, s_w = img.shape[:2]
+        #         self.fix_res = False
+        #         self.fix_wh = True
 
-            if i == 0:
-                if not self.fix_wh:
-                    # using the same standard height or width in each nviews.
-                    s_h, s_w = img.shape[:2]
+        #     if i == 0:
+        #         if not self.fix_wh:
+        #             # using the same standard height or width in each nviews.
+        #             s_h, s_w = img.shape[:2]
 
-            # resize to standard height or width
-            c_h, c_w = img.shape[:2]
-            if (c_h != s_h) or (c_w != s_w):
-                scale_h = 1.0 * s_h / c_h
-                scale_w = 1.0 * s_w / c_w
-                img = cv2.resize(img, (s_w, s_h))
-                intrinsics[0, :] *= scale_w
-                intrinsics[1, :] *= scale_h
+        #     # resize to standard height or width
+        #     c_h, c_w = img.shape[:2]
+        #     if (c_h != s_h) or (c_w != s_w):
+        #         scale_h = 1.0 * s_h / c_h
+        #         scale_w = 1.0 * s_w / c_w
+        #         img = cv2.resize(img, (s_w, s_h))
+        #         intrinsics[0, :] *= scale_w
+        #         intrinsics[1, :] *= scale_h
 
 
-            imgs.append(img)
-            # extrinsics, intrinsics
-            proj_mat = np.zeros(shape=(2, 4, 4), dtype=np.float32)  #
-            proj_mat[0, :4, :4] = extrinsics
-            proj_mat[1, :3, :3] = intrinsics
-            proj_matrices.append(proj_mat)
+        #     imgs.append(img)
+        #     # extrinsics, intrinsics
+        #     proj_mat = np.zeros(shape=(2, 4, 4), dtype=np.float32)  #
+        #     proj_mat[0, :4, :4] = extrinsics
+        #     proj_mat[1, :3, :3] = intrinsics
+        #     proj_matrices.append(proj_mat)
 
-            if i == 0:  # reference view
-                #print(self.ndepths)
-                depth_values = np.arange(depth_min, depth_interval * (self.ndepths - 0.5) + depth_min, depth_interval,
-                                         dtype=np.float32)
+        #     if i == 0:  # reference view
+        #         #print(self.ndepths)
+        #         depth_values = np.arange(depth_min, depth_interval * (self.ndepths - 0.5) + depth_min, depth_interval,
+        #                                  dtype=np.float32)
 
-        #all
-        imgs = np.stack(imgs).transpose([0, 3, 1, 2])
-        proj_matrices = np.stack(proj_matrices)
+        # #all
+        # imgs = np.stack(imgs).transpose([0, 3, 1, 2])
+        # proj_matrices = np.stack(proj_matrices)
 
-        stage2_pjmats = proj_matrices.copy()
-        stage2_pjmats[:, 1, :2, :] = proj_matrices[:, 1, :2, :] * 2
-        stage3_pjmats = proj_matrices.copy()
-        stage3_pjmats[:, 1, :2, :] = proj_matrices[:, 1, :2, :] * 4
+        # stage2_pjmats = proj_matrices.copy()
+        # stage2_pjmats[:, 1, :2, :] = proj_matrices[:, 1, :2, :] * 2
+        # stage3_pjmats = proj_matrices.copy()
+        # stage3_pjmats[:, 1, :2, :] = proj_matrices[:, 1, :2, :] * 4
 
+        # proj_matrices_ms = {
+        #     "stage1": proj_matrices,
+        #     "stage2": stage2_pjmats,
+        #     "stage3": stage3_pjmats
+        # }
+        imgs = self.datalist["imgs"][view_ids]
         proj_matrices_ms = {
-            "stage1": proj_matrices,
-            "stage2": stage2_pjmats,
-            "stage3": stage3_pjmats
+            "stage1": self.datalist["stage1"][view_ids],
+            "stage2": self.datalist["stage2"][view_ids],
+            "stage3": self.datalist["stage3"][view_ids],
         }
-
+        
+        depth_values = self.datalist["depth_values"]
+        
+        #print(np.shape(imgs))
+        
         return {"imgs": imgs,
                 "proj_matrices": proj_matrices_ms,
                 "depth_values": depth_values,

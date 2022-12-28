@@ -8,3 +8,4 @@ events.out.*
 *.pyc
 *.cpkt
 tmp*/
+CasMVSNet/vis/

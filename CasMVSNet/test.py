@@ -24,7 +24,11 @@ import signal
 
 cudnn.benchmark = True
 os.environ['CUDA_DEVICE_ORDER'] = "PCI_BUS_ID"
+
+os.environ['CUDA_VISIBLE_DEVICES'] ='4,5,6'
+
 #os.environ['CUDA_VISIBLE_DEVICES'] ='0,1,3,5,6'
+
 #device = torch.device("cuda:1")
 
 parser = argparse.ArgumentParser(description='Predict depth, filter, and fuse')
@@ -37,10 +41,12 @@ parser.add_argument('--testlist', default="lists/our_list.txt", help='testing sc
 
 parser.add_argument('--local_rank',help='testing data dir for some scenes')
 
-parser.add_argument('--batch_size', type=int, default=18, help='testing batch size')#7 GPUs can use maximum 18 batches +- 2
+
+parser.add_argument('--batch_size', type=int, default=4, help='testing batch size')#7 GPUs can use maximum 18 batches +- 2
 parser.add_argument('--numdepth', type=int, default=192, help='the number of depth values')#192 no significant performance improvement even if increased
 
-parser.add_argument('--loadckpt', default="/home/lhs/Downloads/cascade-stereo/casmvsnet.ckpt", help='load a specific checkpoint')
+parser.add_argument('--loadckpt', default="/hdd1/lhs/dev/code/cascade-stereo/casmvsnet.ckpt", help='load a specific checkpoint')
+
 parser.add_argument('--outdir', default='./outputs', help='output dir')
 parser.add_argument('--display', action='store_true', help='display depth images and masks')
 
@@ -51,10 +57,13 @@ parser.add_argument('--depth_inter_r', type=str, default="4,2,1", help='depth_in
 parser.add_argument('--cr_base_chs', type=str, default="8,8,8", help='cost regularization base channels')
 parser.add_argument('--grad_method', type=str, default="detach", choices=["detach", "undetach"], help='grad method')
 
-parser.add_argument('--interval_scale', type=float, default=1.06, help='the depth interval scale')
+
+parser.add_argument('--interval_scale', type=float, default=1.3, help='the depth interval scale')
 parser.add_argument('--num_view', type=int, default=5, help='num of view')#2 is blur, 10 is too much
-parser.add_argument('--max_h', type=int, default=864, help='testing max h')#864
-parser.add_argument('--max_w', type=int, default=1152, help='testing max w')#1152
+parser.add_argument('--max_h', type=int, default=1024, help='testing max h')#864
+parser.add_argument('--max_w', type=int, default=960, help='testing max w')#1152
+
+
 parser.add_argument('--fix_res', action='store_true', help='scene all using same res')
 
 parser.add_argument('--num_worker', type=int, default=10, help='depth_filer worker')
@@ -65,13 +74,15 @@ parser.add_argument('--filter_method', type=str, default='normal', choices=["gip
 
 #filter
 parser.add_argument('--conf', type=float, default=0.9, help='prob confidence')
-parser.add_argument('--thres_view', type=int, default=4, help='threshold of num view')
+parser.add_argument('--thres_view', type=int, default=3, help='threshold of num view')
 
 #filter by gimupa
-parser.add_argument('--fusibile_exe_path', type=str, default='../fusibile/fusibile')
+parser.add_argument('--fusibile_exe_path', type=str, default='../../fusibile/fusibile')
 parser.add_argument('--prob_threshold', type=float, default='0.9')
-parser.add_argument('--disp_threshold', type=float, default='0.25')
-parser.add_argument('--num_consistent', type=float, default='4')
+parser.add_argument('--disp_threshold', type=float, default='0.5')
+parser.add_argument('--num_consistent', type=float, default='3')
+
+
 
 
 # parse arguments and check
@@ -156,18 +167,25 @@ def write_cam(file, cam):
 def save_depth(testlist):
 
     for scene in testlist:
+        t = time.time()
         save_scene_depth([scene])
-
+        t1 = time.time()
+        print("iter : ", t1 - t)
+        
 # run CasMVS model to save depth maps and confidence maps
 def save_scene_depth(testlist):
     # dataset, dataloader
 
     MVSDataset = find_dataset_def(args.dataset)
-
-
+    s = time.time()
+    
     test_dataset = MVSDataset(args.testpath, testlist, "test", args.num_view, args.numdepth, Interval_Scale,
                               max_h=args.max_h, max_w=args.max_w, fix_res=args.fix_res)
-    TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=10, drop_last=False)
+    
+    e = time.time()
+    print("aaa ", e - s)
+    
+    TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=12, drop_last=False)
 
 
     # model
@@ -185,7 +203,11 @@ def save_scene_depth(testlist):
     state_dict = torch.load(args.loadckpt, map_location='cpu')
     model.load_state_dict(state_dict['model'], strict=True)
     #model = nn.parallel.DistributedDataParallel(model)
+
+    #model = nn.DataParallel(model)
+
     model = nn.DataParallel(model)
+
     model.cuda()
     model.eval()
     end_time = time.time()
@@ -232,26 +254,7 @@ def save_scene_depth(testlist):
                 img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
                 cv2.imwrite(img_filename, img_bgr)
 
-                # vis
-                # print(photometric_confidence.mean(), photometric_confidence.min(), photometric_confidence.max())
-                # import matplotlib.pyplot as plt
-                # plt.subplot(1, 3, 1)
-                # plt.imshow(img)
-                # plt.subplot(1, 3, 2)
-                # plt.imshow((depth_est - depth_est.min())/(depth_est.max() - depth_est.min()))
-                # plt.subplot(1, 3, 3)
-                # plt.imshow(photometric_confidence)
-                # plt.show()
 
-                # if num_stage == 1:
-                #     downsample_img = cv2.resize(img, (int(img.shape[1] * 0.25), int(img.shape[0] * 0.25)))
-                # elif num_stage == 2:
-                #     downsample_img = cv2.resize(img, (int(img.shape[1] * 0.5), int(img.shape[0] * 0.5)))
-                # elif num_stage == 3:
-                #     downsample_img = img
-                #
-                # #if batch_idx % args.save_freq == 0:
-                #     #generate_pointcloud(downsample_img, depth_est, ply_filename, cam[1, :3, :3])
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -267,10 +270,12 @@ def reproject_with_depth(depth_ref, intrinsics_ref, extrinsics_ref, depth_src, i
     # reference 3D space
     xyz_ref = np.matmul(np.linalg.inv(intrinsics_ref),
                         np.vstack((x_ref, y_ref, np.ones_like(x_ref))) * depth_ref.reshape([-1]))
-    # source 3D space
+
+    # source 3D space (from xyz_ref)
     xyz_src = np.matmul(np.matmul(extrinsics_src, np.linalg.inv(extrinsics_ref)),
                         np.vstack((xyz_ref, np.ones_like(x_ref))))[:3]
-    # source view x, y
+    # source view x, y (projected reference 3d point to source view)
+
     K_xyz_src = np.matmul(intrinsics_src, xyz_src)
     xy_src = K_xyz_src[:2] / K_xyz_src[2:3]
 
@@ -300,18 +305,29 @@ def reproject_with_depth(depth_ref, intrinsics_ref, extrinsics_ref, depth_src, i
 
 def check_geometric_consistency(depth_ref, intrinsics_ref, extrinsics_ref, depth_src, intrinsics_src, extrinsics_src):
     width, height = depth_ref.shape[1], depth_ref.shape[0]
+
+
+
     x_ref, y_ref = np.meshgrid(np.arange(0, width), np.arange(0, height))
+
+
+
+
     depth_reprojected, x2d_reprojected, y2d_reprojected, x2d_src, y2d_src = reproject_with_depth(depth_ref, intrinsics_ref, extrinsics_ref,
                                                      depth_src, intrinsics_src, extrinsics_src)
+    #print(x2d_reprojected)
+
+
     # check |p_reproj-p_1| < 1
     dist = np.sqrt((x2d_reprojected - x_ref) ** 2 + (y2d_reprojected - y_ref) ** 2)
 
     # check |d_reproj-d_1| / d_1 < 0.01
     depth_diff = np.abs(depth_reprojected - depth_ref)
     relative_depth_diff = depth_diff / depth_ref
-
     mask = np.logical_and(dist < 1, relative_depth_diff < 0.01)
+    #mask = np.logical_and(1 , relative_depth_diff < 0.01)
     depth_reprojected[~mask] = 0
+
 
     return mask, depth_reprojected, x2d_src, y2d_src
 
@@ -327,7 +343,13 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
     nviews = len(pair_data)
 
     # for each reference view and the corresponding source views
+
+    j = 0
     for ref_view, src_views in pair_data:
+        # if j ==2:
+        #     break
+        # j = j + 1
+
         # src_views = src_views[:args.num_view]
         # load the camera parameters
         ref_intrinsics, ref_extrinsics = read_camera_parameters(
@@ -341,7 +363,17 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
         ref_depth_est = read_pfm(os.path.join(out_folder, 'depth_est/{:0>8}.pfm'.format(ref_view)))[0]
         # load the photometric mask of the reference view
         confidence = read_pfm(os.path.join(out_folder, 'confidence/{:0>8}.pfm'.format(ref_view)))[0]
+
+        # use gt mask
+        gt_mask = read_img(os.path.join(out_folder, 'mask/{:0>8}.png'.format(ref_view))).astype(np.uint8)
+
         photo_mask = confidence > args.conf
+
+        # use gt mask
+        photo_mask = np.logical_and(photo_mask, gt_mask)
+
+        photo_mask = confidence > args.conf
+
 
         all_srcview_depth_ests = []
         all_srcview_x = []
@@ -350,21 +382,40 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
 
         # compute the geometric mask
         geo_mask_sum = 0
+
         for src_view in src_views:
             # camera parameters of the source view
             src_intrinsics, src_extrinsics = read_camera_parameters(
                 os.path.join(scan_folder, 'cams/{:0>8}_cam.txt'.format(src_view)))
             # the estimated depth of the source view
+
+
             src_depth_est = read_pfm(os.path.join(out_folder, 'depth_est/{:0>8}.pfm'.format(src_view)))[0]
+
 
             geo_mask, depth_reprojected, x2d_src, y2d_src = check_geometric_consistency(ref_depth_est, ref_intrinsics, ref_extrinsics,
                                                                       src_depth_est,
                                                                       src_intrinsics, src_extrinsics)
+
+
+
             geo_mask_sum += geo_mask.astype(np.int32)
             all_srcview_depth_ests.append(depth_reprojected)
             all_srcview_x.append(x2d_src)
             all_srcview_y.append(y2d_src)
             all_srcview_geomask.append(geo_mask)
+
+
+        depth_est_averaged = (sum(all_srcview_depth_ests) + ref_depth_est) / (geo_mask_sum + 1)
+
+
+    
+
+        # at least 3 source views matched
+        geo_mask = geo_mask_sum >= args.thres_view
+
+        final_mask = np.logical_and(photo_mask, geo_mask)
+        #final_mask = photo_mask.astype(np.bool)
 
         depth_est_averaged = (sum(all_srcview_depth_ests) + ref_depth_est) / (geo_mask_sum + 1)
         # at least 3 source views matched
@@ -380,22 +431,20 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
                                                                                     photo_mask.mean(),
                                                                                     geo_mask.mean(), final_mask.mean()))
 
-        if args.display:
-            import cv2
-            cv2.imshow('ref_img', ref_img[:, :, ::-1])
-            cv2.imshow('ref_depth', ref_depth_est / 800)
-            cv2.imshow('ref_depth * photo_mask', ref_depth_est * photo_mask.astype(np.float32) / 800)
-            cv2.imshow('ref_depth * geo_mask', ref_depth_est * geo_mask.astype(np.float32) / 800)
-            cv2.imshow('ref_depth * mask', ref_depth_est * final_mask.astype(np.float32) / 800)
-            cv2.waitKey(0)
+
+        #use no filter
+        #depth_est_averaged = ref_depth_est
 
         height, width = depth_est_averaged.shape[:2]
         x, y = np.meshgrid(np.arange(0, width), np.arange(0, height))
-        # valid_points = np.logical_and(final_mask, ~used_mask[ref_view])
+
+        #use only gt mask
+        # valid_points = gt_mask.astype(np.bool)
+
         valid_points = final_mask
         print("valid_points", valid_points.mean())
         x, y, depth = x[valid_points], y[valid_points], depth_est_averaged[valid_points]
-        #color = ref_img[1:-16:4, 1::4, :][valid_points]  # hardcoded for DTU dataset
+
 
         if num_stage == 1:
             color = ref_img[1::4, 1::4, :][valid_points]
@@ -408,6 +457,14 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
                             np.vstack((x, y, np.ones_like(x))) * depth)
         xyz_world = np.matmul(np.linalg.inv(ref_extrinsics),
                               np.vstack((xyz_ref, np.ones_like(x))))[:3]
+
+
+        #print(np.shape(xyz_world))
+        vertexs.append(xyz_world.transpose((1, 0)))
+        vertex_colors.append((color * 255).astype(np.uint8))
+
+
+
         vertexs.append(xyz_world.transpose((1, 0)))
         vertex_colors.append((color * 255).astype(np.uint8))
 
@@ -418,6 +475,7 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
         #     src_y = all_srcview_y[idx].astype(np.int)
         #     src_x = all_srcview_x[idx].astype(np.int)
         #     used_mask[src_view][src_y[src_mask], src_x[src_mask]] = True
+
 
     vertexs = np.concatenate(vertexs, axis=0)
     vertex_colors = np.concatenate(vertex_colors, axis=0)
@@ -470,6 +528,7 @@ def pcd_filter(testlist, number_worker):
 
 if __name__ == '__main__':
 
+    start_time0 = time.time()
     if args.testlist != "all":
         with open(args.testlist) as f:
             content = f.readlines()
@@ -480,12 +539,24 @@ if __name__ == '__main__':
             if not args.testpath_single_scene else [os.path.basename(args.testpath_single_scene)]
 
     # step1. save all the depth maps and the masks in outputs directory
+    
     save_depth(testlist)
-
+    start_time = time.time()  
     # step2. filter saved depth maps with photometric confidence maps and geometric constraints
+
     if args.filter_method != "gipuma":
         #support multi-processing, the default number of worker is 4
         pcd_filter(testlist, args.num_worker)
     else:
         gipuma_filter(testlist, args.outdir, args.prob_threshold, args.disp_threshold, args.num_consistent,
-                      args.fusibile_exe_path)
+
+                        args.fusibile_exe_path)
+
+    end_time = time.time()
+    print("Depth Total time", str(start_time - start_time0))
+
+    print("Fusion Total time", str(end_time-start_time))
+
+    print("Total time", str(end_time - start_time0))
+
+

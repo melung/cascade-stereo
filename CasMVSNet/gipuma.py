@@ -3,6 +3,7 @@ from utils import *
 from datasets.data_io import read_pfm, save_pfm
 from struct import *
 import numpy as np
+from PIL import Image
 
 # read intrinsics and extrinsics
 def read_camera_parameters(filename):
@@ -16,6 +17,7 @@ def read_camera_parameters(filename):
     # TODO: assume the feature is 1/4 of the original image size
     # intrinsics[:2, :] /= 4
     return intrinsics, extrinsics
+
 
 def read_gipuma_dmb(path):
     '''read Gipuma .dmb format image'''
@@ -87,23 +89,43 @@ def mvsnet_to_gipuma_cam(in_path, out_path):
     return
 
 
-def fake_gipuma_normal(in_depth_path, out_normal_path):
+def fake_gipuma_normal(in_cam_file, in_depth_path, out_normal_path):
     depth_image = read_gipuma_dmb(in_depth_path)
     image_shape = np.shape(depth_image)
 
-    normal_image = np.ones_like(depth_image)
-    normal_image = np.reshape(normal_image, (image_shape[0], image_shape[1], 1))
+    #intrinsic, extrinsic = read_camera_parameters(in_cam_file)
+    #fake_normal = np.matmul(extrinsic[:3,:3], np.array([[1],[0],[0]]))
+    fake_normal = np.array([0.8, 0.424, 0.424])
+
+
+    normal_image = np.ones_like(depth_image) #depth
+    #print(np.shape(normal_image))
+    normal_image = np.reshape(normal_image, (image_shape[0], image_shape[1], 1)) #one channel depth
+    #print(np.shape(normal_image))
     normal_image = np.tile(normal_image, [1, 1, 3])
-    normal_image = normal_image / 1.732050808
+    normal_image[:, :, 0] = fake_normal[0]
+    normal_image[:, :, 1] = fake_normal[1]
+    normal_image[:, :, 2] = fake_normal[2]
 
-    mask_image = np.squeeze(np.where(depth_image > 0, 1, 0))
-    mask_image = np.reshape(mask_image, (image_shape[0], image_shape[1], 1))
-    mask_image = np.tile(mask_image, [1, 1, 3])
-    mask_image = np.float32(mask_image)
+    ######################
 
-    normal_image = np.multiply(normal_image, mask_image)
+    #normal_image[:,:,2] = -normal_image[:,:,2]
+    #noraml????
+
+    ######################
+
+    #print(np.shape(normal_image))
+    #normal_image = normal_image / 1.732050808
+    #print(normal_image)
+    # mask_image = np.squeeze(np.where(depth_image > 0, 1, 0))
+    # mask_image = np.reshape(mask_image, (image_shape[0], image_shape[1], 1))
+    # mask_image = np.tile(mask_image, [1, 1, 3])
+    # mask_image = np.float32(mask_image)
+    #
+    # normal_image = np.multiply(normal_image, mask_image)
     normal_image = np.float32(normal_image)
-
+    #print(normal_image)
+    #print(normal_image[:, :, 1])
     write_gipuma_dmb(out_normal_path, normal_image)
     return
 
@@ -139,16 +161,27 @@ def mvsnet_to_gipuma(dense_folder, gipuma_point_folder):
         # convert depth maps and fake normal maps
     gipuma_prefix = '2333__'
     for image_name in image_names:
+        in_cam_file = os.path.join(cam_folder, image_prefix + '_cam.txt')
         image_prefix = os.path.splitext(image_name)[0]
         sub_depth_folder = os.path.join(gipuma_point_folder, gipuma_prefix + image_prefix)
         if not os.path.isdir(sub_depth_folder):
             os.mkdir(sub_depth_folder)
+
         in_depth_pfm = os.path.join(dense_folder, "depth_est", image_prefix + '_prob_filtered.pfm')
         out_depth_dmb = os.path.join(sub_depth_folder, 'disp.dmb')
+
+
         fake_normal_dmb = os.path.join(sub_depth_folder, 'normals.dmb')
         mvsnet_to_gipuma_dmb(in_depth_pfm, out_depth_dmb)
-        fake_gipuma_normal(out_depth_dmb, fake_normal_dmb)
 
+
+        fake_gipuma_normal(in_cam_file,out_depth_dmb, fake_normal_dmb)
+
+def read_img(filename):
+    img = Image.open(filename)
+    # scale 0~255 to 0~1
+    np_img = np.array(img, dtype=np.bool)
+    return np_img
 
 def probability_filter(dense_folder, prob_threshold):
     image_folder = os.path.join(dense_folder, 'images')
@@ -159,19 +192,25 @@ def probability_filter(dense_folder, prob_threshold):
         image_prefix = os.path.splitext(image_name)[0]
         init_depth_map_path = os.path.join(dense_folder, "depth_est", image_prefix + '.pfm')
         prob_map_path = os.path.join(dense_folder, "confidence", image_prefix + '.pfm')
+
         out_depth_map_path = os.path.join(dense_folder, "depth_est", image_prefix + '_prob_filtered.pfm')
 
         depth_map, _ = read_pfm(init_depth_map_path)
         prob_map, _ = read_pfm(prob_map_path)
+        #prob_map2 = read_img(os.path.join(dense_folder,'mask',image_prefix+'.png'))
+
+
         depth_map[prob_map < prob_threshold] = 0
+        #depth_map[prob_map2 < 1] = 0
+
         save_pfm(out_depth_map_path, depth_map)
 
 
 def depth_map_fusion(point_folder, fusibile_exe_path, disp_thresh, num_consistent):
     cam_folder = os.path.join(point_folder, 'cams')
     image_folder = os.path.join(point_folder, 'images')
-    depth_min = 0.001
-    depth_max = 100000
+    depth_min = 0.0001
+    depth_max = 100000000
     normal_thresh = 360
 
     cmd = fusibile_exe_path
@@ -183,16 +222,16 @@ def depth_map_fusion(point_folder, fusibile_exe_path, disp_thresh, num_consisten
     cmd = cmd + ' --normal_thresh=' + str(normal_thresh)
     cmd = cmd + ' --disp_thresh=' + str(disp_thresh)
     cmd = cmd + ' --num_consistent=' + str(num_consistent)
-    print(cmd)
+    #print(cmd)
     os.system(cmd)
 
     return
 
-
+import time
 def gipuma_filter(testlist, outdir, prob_threshold, disp_threshold, num_consistent, fusibile_exe_path):
 
     for scan in testlist:
-
+        st  = time.time()
         out_folder = os.path.join(outdir, scan)
         dense_folder = out_folder
 
@@ -201,13 +240,14 @@ def gipuma_filter(testlist, outdir, prob_threshold, disp_threshold, num_consiste
             os.mkdir(point_folder)
 
         # probability filter
-        print('filter depth map with probability map')
+        #print('filter depth map with probability map')
         probability_filter(dense_folder, prob_threshold)
 
         # convert to gipuma format
-        print('Convert mvsnet output to gipuma input')
+        #print('Convert mvsnet output to gipuma input')
         mvsnet_to_gipuma(dense_folder, point_folder)
-
+        ed = time.time()
         # depth map fusion with gipuma
-        print('Run depth map fusion & filter')
+        #print('Run depth map fusion & filter')
         depth_map_fusion(point_folder, fusibile_exe_path, disp_threshold, num_consistent)
+        print("fusion preprocessing:", ed -st)
