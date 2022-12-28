@@ -75,5 +75,6 @@ class SceneFlowDatset(Dataset):
             return {"left": left_img,
                     "right": right_img,
                     "disparity": disparity,
+                    "left_filename": self.left_filenames[index],
                     "top_pad": 0,
                     "right_pad": 0}
