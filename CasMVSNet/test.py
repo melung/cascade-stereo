@@ -23,9 +23,9 @@ from functools import partial
 import signal
 
 cudnn.benchmark = True
-os.environ['CUDA_DEVICE_ORDER'] = "PCI_BUS_ID"
+#os.environ['CUDA_DEVICE_ORDER'] = "PCI_BUS_ID"
 
-os.environ['CUDA_VISIBLE_DEVICES'] ='4,5,6'
+#os.environ['CUDA_VISIBLE_DEVICES'] ='0,1'
 
 #os.environ['CUDA_VISIBLE_DEVICES'] ='0,1,3,5,6'
 
@@ -45,7 +45,7 @@ parser.add_argument('--local_rank',help='testing data dir for some scenes')
 parser.add_argument('--batch_size', type=int, default=4, help='testing batch size')#7 GPUs can use maximum 18 batches +- 2
 parser.add_argument('--numdepth', type=int, default=192, help='the number of depth values')#192 no significant performance improvement even if increased
 
-parser.add_argument('--loadckpt', default="/hdd1/lhs/dev/code/cascade-stereo/casmvsnet.ckpt", help='load a specific checkpoint')
+parser.add_argument('--loadckpt', default="/root/lhs/cascade-stereo/casmvsnet.ckpt", help='load a specific checkpoint')
 
 parser.add_argument('--outdir', default='./outputs', help='output dir')
 parser.add_argument('--display', action='store_true', help='display depth images and masks')
@@ -66,7 +66,7 @@ parser.add_argument('--max_w', type=int, default=960, help='testing max w')#1152
 
 parser.add_argument('--fix_res', action='store_true', help='scene all using same res')
 
-parser.add_argument('--num_worker', type=int, default=10, help='depth_filer worker')
+parser.add_argument('--num_worker', type=int, default=16, help='depth_filer worker')
 parser.add_argument('--save_freq', type=int, default=60, help='save freq of local pcd')
 
 
@@ -79,7 +79,7 @@ parser.add_argument('--thres_view', type=int, default=3, help='threshold of num 
 #filter by gimupa
 parser.add_argument('--fusibile_exe_path', type=str, default='../../fusibile/fusibile')
 parser.add_argument('--prob_threshold', type=float, default='0.9')
-parser.add_argument('--disp_threshold', type=float, default='0.5')
+parser.add_argument('--disp_threshold', type=float, default='1.0')
 parser.add_argument('--num_consistent', type=float, default='3')
 
 
@@ -185,7 +185,7 @@ def save_scene_depth(testlist):
     e = time.time()
     print("aaa ", e - s)
     
-    TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=12, drop_last=False)
+    TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=8, drop_last=False)
 
 
     # model
@@ -198,17 +198,14 @@ def save_scene_depth(testlist):
 
     # load checkpoint file specified by args.loadckpt
     print("loading model {}".format(args.loadckpt))
-
     start_time = time.time()
     state_dict = torch.load(args.loadckpt, map_location='cpu')
     model.load_state_dict(state_dict['model'], strict=True)
     #model = nn.parallel.DistributedDataParallel(model)
-
-    #model = nn.DataParallel(model)
-
     model = nn.DataParallel(model)
 
     model.cuda()
+
     model.eval()
     end_time = time.time()
     print('Model_loaded Parallel Time: ' + str(end_time - start_time))
@@ -365,12 +362,12 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
         confidence = read_pfm(os.path.join(out_folder, 'confidence/{:0>8}.pfm'.format(ref_view)))[0]
 
         # use gt mask
-        gt_mask = read_img(os.path.join(out_folder, 'mask/{:0>8}.png'.format(ref_view))).astype(np.uint8)
+        #gt_mask = read_img(os.path.join(out_folder, 'mask/{:0>8}.png'.format(ref_view))).astype(np.uint8)
 
         photo_mask = confidence > args.conf
 
         # use gt mask
-        photo_mask = np.logical_and(photo_mask, gt_mask)
+        #photo_mask = np.logical_and(photo_mask, gt_mask)
 
         photo_mask = confidence > args.conf
 
