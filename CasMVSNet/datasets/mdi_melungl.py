@@ -156,7 +156,8 @@ class MVSDataset(Dataset):
         intrinsics[:2, :] /= 4.0
         # depth_min & depth_interval: line 11
         depth_min = float(lines[11].split()[0]) #use cam.txt depth min data
-        depth_min = 850 #use direct depth min
+        depth_min = 850 #use direct depth min for blender
+        #depth_min = 1500 #use direct depth min
         depth_interval = float(lines[11].split()[1])
 
         if len(lines[11].split()) >= 3:

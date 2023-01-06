@@ -59,10 +59,10 @@ parser.add_argument('--cr_base_chs', type=str, default="8,8,8", help='cost regul
 parser.add_argument('--grad_method', type=str, default="detach", choices=["detach", "undetach"], help='grad method')
 
 
-parser.add_argument('--interval_scale', type=float, default=1.06, help='the depth interval scale')
+parser.add_argument('--interval_scale', type=float, default=1.3, help='the depth interval scale')
 parser.add_argument('--num_view', type=int, default=5, help='num of view')#2 is blur, 10 is too much
-parser.add_argument('--max_h', type=int, default=1024, help='testing max h')#864
-parser.add_argument('--max_w', type=int, default=1024, help='testing max w')#1152
+parser.add_argument('--max_h', type=int, default=960, help='testing max h')#864
+parser.add_argument('--max_w', type=int, default=960, help='testing max w')#1152
 
 
 parser.add_argument('--fix_res', action='store_true', help='scene all using same res')
@@ -78,7 +78,7 @@ parser.add_argument('--thres_view', type=int, default=3, help='threshold of num 
 #filter by gimupa
 parser.add_argument('--fusibile_exe_path', type=str, default='../../fusibile/fusibile')
 parser.add_argument('--prob_threshold', type=float, default='0.9')
-parser.add_argument('--disp_threshold', type=float, default='1.0')
+parser.add_argument('--disp_threshold', type=float, default='0.8')
 parser.add_argument('--num_consistent', type=float, default='3')
 
 # parse arguments and check
@@ -163,7 +163,7 @@ def save_scene_depth(model, test_dataset):
     # dataset, dataloader  
     TestImgLoader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=8, drop_last=False)
 
-    # 이거 위로 빼고 thread열어서 대기 중 로드할 수 있도록
+    #
 
     with torch.no_grad():
         for batch_idx, sample in enumerate(TestImgLoader):
@@ -258,29 +258,9 @@ def write_gipuma_dmb(path, image):
         image.tofile(fid)
     return
 
-def normalizeVector(v):
-    length = np.sqrt(v[0]**2 + v[1]**2 + v[2]**2)
-    v = v/length
-    return v
 
 
-def smooth_gaussian(im:np.ndarray, sigma) -> np.ndarray:
-
-    if sigma == 0:
-        return im
-
-    im_smooth = im.astype(float)
-    kernel_x = np.arange(-3*sigma,3*sigma+1).astype(float)
-    kernel_x = np.exp((-(kernel_x**2))/(2*(sigma**2)))
-
-    im_smooth = ndimage.convolve(im_smooth, kernel_x[np.newaxis])
-
-    im_smooth = ndimage.convolve(im_smooth, kernel_x[np.newaxis].T)
-
-    return im_smooth
-
-
-def gradient(im_smooth:np.ndarray):
+def gradient(im_smooth):
 
     gradient_x = im_smooth.astype(float)
     gradient_y = im_smooth.astype(float)
@@ -306,7 +286,7 @@ def sobel(im_smooth):
     return gradient_x,gradient_y
 
 
-def compute_normal_map(gradient_x:np.ndarray, gradient_y:np.ndarray, intensity=1):
+def compute_normal_map(gradient_x, gradient_y, intensity=1):
 
     width = gradient_x.shape[1]
     height = gradient_x.shape[0]
@@ -322,10 +302,12 @@ def compute_normal_map(gradient_x:np.ndarray, gradient_y:np.ndarray, intensity=1
 
     intensity = 1 / intensity
 
+    #print(max_value)
     strength = max_value / (max_value * intensity)
 
     normal_map[..., 0] = gradient_x / max_value
     normal_map[..., 1] = gradient_y / max_value
+
     normal_map[..., 2] = 1 / strength
 
     norm = np.sqrt(np.power(normal_map[..., 0], 2) + np.power(normal_map[..., 1], 2) + np.power(normal_map[..., 2], 2))
@@ -334,133 +316,67 @@ def compute_normal_map(gradient_x:np.ndarray, gradient_y:np.ndarray, intensity=1
     normal_map[..., 1] /= norm
     normal_map[..., 2] /= norm
 
-    #normal_map *= 0.5
-    #normal_map += 0.5
 
     return normal_map
 
-def normalized(a) -> float: 
-    factor = 1.0/math.sqrt(np.sum(a*a)) # normalize
-    return a*factor
 
 
-
-
-
-def Convert(input_file,smoothness,intensity):
-
-    im = input_file
-
-    #im_smooth = smooth_gaussian(im, 0)
+def Convert(im,intensity):
 
     sobel_x, sobel_y = sobel(im)
 
-    normal_map = compute_normal_map(sobel_x, sobel_y, 1000)
-    # normal_map *= 255
-    # normal_map.astype('uint8')
-
-    # normals = cv2.cvtColor(normal_map, cv2.COLOR_BGR2RGB)
-    # cv2.imwrite("/root/lhs/normal.png", normals)
+    normal_map = compute_normal_map(sobel_x, sobel_y, intensity)
 
     return normal_map
 
 
 def fake_gipuma_normal(cam, path, depth_image):
     image_shape = np.shape(depth_image)
-
-    normals = Convert(depth_image,0,1)
-    normals[:,:,0] = -normals[:,:,0] 
-
     h, w = np.shape(depth_image)
-    
-    
-    # normals = np.zeros((h, w, 3))
-
-    # for x in range(1, h-1):
-    #     for y in range(1, w-1):
-
-    #         dzdx = (float(depth_image[x+1, y]) - float(depth_image[x-1, y])) / 2.0
-    #         dzdy = (float(depth_image[x, y+1]) - float(depth_image[x, y-1])) / 2.0
-
-    #         d = (-dzdx, -dzdy, 1.0)
-
-    #         n = normalizeVector(d)
-
-    #         normals[x,y] = n * 0.5 + 0.5
-
-    # normals *= 255
-
-    # normals = normals.astype('uint8')
-    # normals = cv2.cvtColor(normals, cv2.COLOR_BGR2RGB)
-    # cv2.imwrite("/root/lhs/nor.png", normals)
-
-
-    #intrinsic, extrinsic = read_camera_parameters(in_cam_file)
     extrinsic = cam[0]
-    #fake_normal = np.matmul(extrinsic[:3,:3], np.array([[-1/ 1.732050808],[-1/ 1.732050808],[-1/ 1.732050808]]))
-    #fake_normal = np.matmul(extrinsic[:3,:3], np.array([[1/ 1.732050808],[1/ 1.732050808],[1/ 1.732050808]]))
-    #fake_normal = np.array([0, 0, 1])
     
+    a = True
     
-    normal_image = np.ones_like(normals)
-    for x in range(h):
-        for y in range(w):
-            normal_image[x,y,:] = -np.matmul(extrinsic[:3,:3].T, normals[x,y,:])
-    
+    if a == True:
+        normals = Convert(depth_image,1000)
 
-    
-    # fake_normal = np.array(-extrinsic[2,:3])
-    #print(fake_normal)
-    
-    # normal_image = np.ones_like(depth_image) #depth
-    # #print(np.shape(normal_image))
-    # normal_image = np.reshape(normal_image, (image_shape[0], image_shape[1], 1)) #one channel depth
-    # #print(np.shape(normal_image))
-    # normal_image = np.tile(normal_image, [1, 1, 3])
-    # #print(np.shape(normal_image))
-    # normal_image[:, :, 0] = fake_normal[0]
-    # normal_image[:, :, 1] = fake_normal[1]
-    # normal_image[:, :, 2] = fake_normal[2]
+        normal_image = normals
+        
+        # for x in range(h):
+        #     for y in range(w):
+        #         normal_image[x,y,:] = -np.matmul(extrinsic[:3,:3].T,normals[x,y,:])
+                
+    else:
+        fake_normal = np.array(-extrinsic[2,:3])
+        
+        normal_image = np.ones_like(depth_image) #depth
+        normal_image = np.reshape(normal_image, (image_shape[0], image_shape[1], 1)) #one channel depth
+        normal_image = np.tile(normal_image, [1, 1, 3])
 
-    ######################
+        normal_image[:, :, 0] = fake_normal[0]
+        normal_image[:, :, 1] = fake_normal[1]
+        normal_image[:, :, 2] = fake_normal[2]
 
-    #normal_image[:,:,2] = -normal_image[:,:,2]
-    #noraml????
 
-    ######################
-
-    #print(np.shape(normal_image))
-    #normal_image = normal_image / 1.732050808
-    #print(normal_image)
-    # mask_image = np.squeeze(np.where(depth_image > 0, 1, 0))
-    # mask_image = np.reshape(mask_image, (image_shape[0], image_shape[1], 1))
-    # mask_image = np.tile(mask_image, [1, 1, 3])
-    # mask_image = np.float32(mask_image)
-    #
-    # normal_image = np.multiply(normal_image, mask_image)
     normal_image = np.float32(normal_image)
-    #print(normal_image)
-    #print(normal_image[:, :, 1])
     write_gipuma_dmb(path, normal_image)
     
+    #########################################
+    # normal_image *= 0.5
+    # normal_image += 0.5
+    # normal_image *= 255
+    # normals *= 0.5
+    # normals += 0.5
+    # normals *= 255
     
-    normal_image *= 0.5
-    normal_image += 0.5
-    normal_image *= 255
-    
-    normals *= 0.5
-    normals += 0.5
-    normals *= 255
-    
-    normal_image.astype('uint8')
-    normals.astype('uint8')
-    
-    tt = time.time()
-    normal_image = cv2.cvtColor(normal_image, cv2.COLOR_BGR2RGB)
-    cv2.imwrite("/root/lhs/normal/normal_g"+ str(tt) +".png", normal_image)
-    normals = cv2.cvtColor(normals, cv2.COLOR_BGR2RGB)
-    cv2.imwrite("/root/lhs/normal/normal_o"+ str(tt) +".png", normals)
-    
+    # normal_image.astype('uint8')
+    # normals.astype('uint8')
+    # tt = time.time()
+    # normal_image = cv2.cvtColor(normal_image, cv2.COLOR_BGR2RGB)
+    # cv2.imwrite("/root/lhs/normal/normal_g"+ str(tt) +".png", normal_image)
+    # normals = cv2.cvtColor(normals, cv2.COLOR_BGR2RGB)
+    # cv2.imwrite("/root/lhs/normal/normal_o"+ str(tt) +".png", normals)
+    ##########################################
     
     return
 
