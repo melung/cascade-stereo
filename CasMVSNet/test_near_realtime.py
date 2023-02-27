@@ -256,6 +256,7 @@ def write_gipuma_dmb(path, image):
         fid.write(pack('<i', width))
         fid.write(pack('<i', channels))
         image.tofile(fid)
+    np.save(path+".npy", image)    
     return
 
 
@@ -338,14 +339,18 @@ def fake_gipuma_normal(cam, path, depth_image):
     a = True
     
     if a == True:
+        #tt = time.time()
         normals = Convert(depth_image,1000)
+        #ee = time.time()
+        #print("noraml time : ", str(ee-tt))
 
         normal_image = normals
         
         # for x in range(h):
         #     for y in range(w):
         #         normal_image[x,y,:] = -np.matmul(extrinsic[:3,:3].T,normals[x,y,:])
-                
+        # eee = time.time()
+        # print("noraml r time : ", str(eee-ee))        
     else:
         fake_normal = np.array(-extrinsic[2,:3])
         
@@ -405,6 +410,38 @@ def depth_map_fusion(point_folder, fusibile_exe_path, disp_thresh, num_consisten
     t = time.time()
     os.system(cmd)
     e = time.time()
+    ms = pymeshlab.MeshSet()
+    ms.load_new_mesh(scan_folder + '/mesh.ply')
+    ms.meshing_remove_connected_component_by_diameter(mincomponentdiag = pymeshlab.Percentage(20))
+    ms.save_current_mesh(scan_folder + '/filtered_mesh.obj')
+    
+    #cmd = "python /root/lhs/face-parsing.PyTorch/test.py -p " + point_folder 
+    cmd = "python /root/lhs/eye_mask/face_mask.py -p " + point_folder 
+    os.system(cmd)
+    
+    image_folder = os.path.join(point_folder, 'seg_img')
+    cmd = fusibile_exe_path
+    cmd = cmd + ' -input_folder ' + point_folder + '/'
+    cmd = cmd + ' -p_folder ' + cam_folder + '/'
+    cmd = cmd + ' -images_folder ' + image_folder + '/'
+    cmd = cmd + ' --depth_min=' + str(depth_min)
+    cmd = cmd + ' --depth_max=' + str(depth_max)
+    cmd = cmd + ' --normal_thresh=' + str(normal_thresh)
+    cmd = cmd + ' --disp_thresh=' + str(disp_thresh)
+    cmd = cmd + ' --num_consistent=' + str(num_consistent)
+    #print(cmd)
+    os.system(cmd)
+    cmd = "PoissonRecon --in " + scan_folder + "/point_clouds.ply --out " + scan_folder + "/mesh_seg.ply" + " --depth 9 --threads 10"
+    t = time.time()
+    os.system(cmd)
+    e = time.time()
+    ms = pymeshlab.MeshSet()
+    ms.load_new_mesh(scan_folder + '/mesh_seg.ply')
+    ms.meshing_remove_connected_component_by_diameter()
+    ms.save_current_mesh(scan_folder + '/filtered_mesh_seg.obj')
+    
+    
+    #meshing_remove_connected_component_by_diameter
     print("PoissonRecon time: ", e - t)
     print("Writing ply file ", scan_folder + "/mesh.ply")
     print("store 3D mesh to ply file" )
@@ -477,8 +514,13 @@ if __name__ == '__main__':
             testlist = [line.rstrip() for line in content]
     else:
         #for tanks & temples or eth3d or colmap
-        testlist = [e for e in os.listdir(args.testpath) if os.path.isdir(os.path.join(args.testpath, e))] \
-            if not args.testpath_single_scene else [os.path.basename(args.testpath_single_scene)]
+        testlist = []
+        for i in range(82,138):
+            print(i)
+            if i != 86:
+                testlist.append("scan"+format(i,"04")) 
+        # testlist = [e for e in os.listdir(args.testpath) if os.path.isdir(os.path.join(args.testpath, e))] \
+        #     if not args.testpath_single_scene else [os.path.basename(args.testpath_single_scene)]
 
     # step1. save all the depth maps and the masks in outputs directory
     

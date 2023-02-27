@@ -9,3 +9,11 @@ events.out.*
 *.cpkt
 tmp*/
 CasMVSNet/vis/
+CasMVSNet/data/
+CasMVSNet/outputs/
+*.jpg
+*.png
+*.dmb
+*.npy
+*.ply
+*.obj

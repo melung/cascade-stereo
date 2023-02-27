@@ -80,7 +80,6 @@ class MVSDataset(Dataset):
                     img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.png'.format(scan, i))
 
             proj_mat_filename = os.path.join(self.datapath, '{}/cams/{:0>8}_cam.txt'.format(scan, i))
-
             img = self.read_img(img_filename)
             intrinsics, extrinsics, depth_min, depth_interval = self.read_cam_file(proj_mat_filename, interval_scale=
                                                                                    self.interval_scale[scene_name])
@@ -156,8 +155,8 @@ class MVSDataset(Dataset):
         intrinsics[:2, :] /= 4.0
         # depth_min & depth_interval: line 11
         depth_min = float(lines[11].split()[0]) #use cam.txt depth min data
-        depth_min = 850 #use direct depth min for blender
-        #depth_min = 1500 #use direct depth min
+        #depth_min = 850 #use direct depth min for blender
+        depth_min = 1300 #use direct depth min
         depth_interval = float(lines[11].split()[1])
 
         if len(lines[11].split()) >= 3:
@@ -172,8 +171,9 @@ class MVSDataset(Dataset):
 
     def read_img(self, filename):
         img = Image.open(filename)
+        #print(filename)
         # scale 0~255 to 0~1
-        np_img = np.array(img, dtype=np.float32) / 255.
+        np_img = np.asarray(img, dtype=np.float32) / 255.
 
         return np_img
 
